@@ -172,7 +172,7 @@ const isEmpty = (checker) => {
   return checker.type === CELL_TYPES.EMPTY;
 };
 
-const calculateTurnsForKing = (row, col, checkOrder) => {
+const calculateTurnsForKing = (row, col, checkOrder, availableTurnModels) => {
   const directions = {
     topLeft: {
       isMet: false,
@@ -199,6 +199,7 @@ const calculateTurnsForKing = (row, col, checkOrder) => {
       model.state = direction.isMet
         ? CELL_STATE.REQUIRED
         : CELL_STATE.AVAILABLE;
+      availableTurnModels.push(model);
     } else {
       direction.available = false;
     }
@@ -239,9 +240,12 @@ const enablePromptMode = (row, col) => {
 
   isPromptModeEnabled = true;
 
+  const availableTurnModels = [];
+
   if (isWhite(checkerModel)) {
     if (row - 1 >= 0 && col - 1 >= 0) {
       const avModel = boardModel[row - 1][col - 1];
+      availableTurnModels.push(avModel);
 
       if (isBlack(avModel) && (row - 2 >= 0 && col - 2 >= 0)) {
         boardModel[row - 2][col - 2].state = CELL_STATE.REQUIRED;
@@ -251,6 +255,7 @@ const enablePromptMode = (row, col) => {
     }
     if (row - 1 >= 0 && col + 1 < BOARD_SIZE) {
       const avModel = boardModel[row - 1][col + 1];
+      availableTurnModels.push(avModel);
 
       if (isBlack(avModel) && (row - 2 >= 0 && col + 2 < BOARD_SIZE)) {
         boardModel[row - 2][col + 2].state = CELL_STATE.REQUIRED;
@@ -261,11 +266,12 @@ const enablePromptMode = (row, col) => {
 
     // check for the king
     if (checkerModel.type === CELL_TYPES.WHITE_KING) {
-      calculateTurnsForKing(row, col, isBlack);
+      calculateTurnsForKing(row, col, isBlack, availableTurnModels);
     }
   } else if (isBlack(checkerModel)) {
     if (row + 1 < BOARD_SIZE && col - 1 >= 0) {
       const avModel = boardModel[row + 1][col - 1];
+      availableTurnModels.push(avModel);
 
       if (isWhite(avModel) && (row + 2 < BOARD_SIZE && col - 2 >= 0)) {
         boardModel[row + 2][col - 2].state = CELL_STATE.REQUIRED;
@@ -276,6 +282,7 @@ const enablePromptMode = (row, col) => {
 
     if (row + 1 < BOARD_SIZE && col + 1 < BOARD_SIZE) {
       const avModel = boardModel[row + 1][col + 1];
+      availableTurnModels.push(avModel);
 
       if (isWhite(avModel) && (row + 2 < BOARD_SIZE && col + 2 < BOARD_SIZE)) {
         boardModel[row + 2][col + 2].state = CELL_STATE.REQUIRED;
@@ -286,8 +293,17 @@ const enablePromptMode = (row, col) => {
 
     // check for the king
     if (checkerModel.type === CELL_TYPES.BLACK_KING) {
-      calculateTurnsForKing(row, col, isWhite);
+      calculateTurnsForKing(row, col, isWhite, availableTurnModels);
     }
+  }
+
+  const isRequiredTurnExist = availableTurnModels
+    .some((model) => model.state === CELL_STATE.REQUIRED);
+
+  if (isRequiredTurnExist) {
+    availableTurnModels
+      .filter((model) => model.state === CELL_STATE.AVAILABLE)
+      .forEach((model) => model.state = CELL_STATE.DEFAULT);
   }
 
   renderAllCheckers();
