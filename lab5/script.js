@@ -43,10 +43,12 @@ let isPromptModeEnabled = false;
 let isTurnOver = false;
 let turnsTable = [];
 let availableTurnModels = [];
+let requiredTurnCheckers = [];
 let turnModel = null;
 let sourceModel = null;
 let currentTeam = null;
 let turnCount = 0;
+let winner = null;
 
 let checkerEls = [];
 let currentTurnEl = null;
@@ -60,18 +62,20 @@ const onCellClick = (rowIndex, colIndex) => {
   if (isPromptModeEnabled) {
     if (cellModel.state === CELL_STATE.PROMPT) {
       disablePromptMode();
+      renderAllCheckers();
       return;
     }
 
-    if (isWhite(cellModel) || isBlack(cellModel)) {
+    if (cellModel.team) {
       return;
     }
 
     handleTurn(cellModel);
   } else if (!isPromptModeEnabled && !isTurnOver
-    && (isWhite(cellModel) && currentTeam === TEAM_TYPES.WHITE
-      || isBlack(cellModel) && currentTeam === TEAM_TYPES.BLACK)) {
+    && cellModel.team === currentTeam
+    && (!requiredTurnCheckers.length || requiredTurnCheckers.includes(cellModel))) {
     enablePromptMode(rowIndex, colIndex);
+    renderAllCheckers();
   }
 };
 
@@ -89,16 +93,24 @@ const setDefaultArrangement = () => {
   // fill the blacks
   for (let row = 0; row < rowsAmount; row++) {
     for (let col = 0; col < boardModel[row].length; col++) {
-      boardModel[row][col].type =
-        isNeedToFillCell(row, col) && CELL_TYPES.BLACK_DEFAULT || CELL_TYPES.EMPTY;
+      if (isNeedToFillCell(row, col)) {
+        boardModel[row][col].type = CELL_TYPES.BLACK_DEFAULT;
+        boardModel[row][col].team = TEAM_TYPES.BLACK;
+      } else {
+        boardModel[row][col].type = CELL_TYPES.EMPTY;
+      }
     }
   }
 
   // fill the whites
   for (let row = boardModel.length - rowsAmount; row < boardModel.length; row++) {
     for (let col = 0; col < boardModel[row].length; col++) {
-      boardModel[row][col].type =
-        isNeedToFillCell(row, col) && CELL_TYPES.WHITE_DEFAULT || CELL_TYPES.EMPTY;
+      if (isNeedToFillCell(row, col)) {
+        boardModel[row][col].type = CELL_TYPES.WHITE_DEFAULT;
+        boardModel[row][col].team = TEAM_TYPES.WHITE;
+      } else {
+        boardModel[row][col].type = CELL_TYPES.EMPTY;
+      }
     }
   }
 };
@@ -123,6 +135,7 @@ const initBoard = () => {
   turnCount = 0;
   turnModel = null;
   isTurnOver = false;
+  winner = null;
 };
 
 const renderChecker = (row, col) => {
@@ -203,10 +216,18 @@ const renderActions = () => {
 };
 
 const renderTurnInfo = () => {
-  const teamName = currentTeam === TEAM_TYPES.BLACK
+  const getTeamName = (team) => team === TEAM_TYPES.BLACK
     ? 'черные'
     : 'белые';
-  currentTurnEl.textContent = `Ходят ${teamName}`;
+
+  let text;
+  if (winner) {
+    text = `Выиграли ${getTeamName(winner)}`;
+  } else {
+    text = `Ходят ${getTeamName(currentTeam)}`;
+  }
+
+  currentTurnEl.textContent = text;
 };
 
 const renderAllCheckers = () => {
@@ -247,21 +268,11 @@ const init = () => {
   renderAllCheckers();
 };
 
-const isWhite = (checker) => {
-  return checker.type === CELL_TYPES.WHITE_DEFAULT ||
-    checker.type === CELL_TYPES.WHITE_KING;
-};
-
-const isBlack = (checker) => {
-  return checker.type === CELL_TYPES.BLACK_DEFAULT ||
-    checker.type === CELL_TYPES.BLACK_KING;
-};
-
 const isEmpty = (checker) => {
   return checker.type === CELL_TYPES.EMPTY;
 };
 
-const calculateTurnsForKing = (row, col, checkOrder, availableTurnModels) => {
+const calculateTurnsForKing = (row, col, team, availableTurnModels) => {
   const directions = {
     topLeft: {
       target: null,
@@ -282,7 +293,7 @@ const calculateTurnsForKing = (row, col, checkOrder, availableTurnModels) => {
   };
 
   const calcDirection = (model, direction) => {
-    if (checkOrder(model) && !direction.target) {
+    if (model.team === team && !direction.target) {
       direction.target = model;
     } else if (isEmpty(model)) {
       model.state = direction.target
@@ -335,14 +346,16 @@ const enablePromptMode = (row, col) => {
 
   availableTurnModels = [];
 
-  if (isWhite(sourceModel)) {
+  if (sourceModel.team === TEAM_TYPES.WHITE) {
     if (sourceModel.type === CELL_TYPES.WHITE_KING) {
-      calculateTurnsForKing(row, col, isBlack, availableTurnModels);
+      calculateTurnsForKing(row, col, TEAM_TYPES.BLACK, availableTurnModels);
     } else {
       if (row - 1 >= 0 && col - 1 >= 0) {
         const avModel = boardModel[row - 1][col - 1];
 
-        if (isBlack(avModel) && (row - 2 >= 0 && col - 2 >= 0) && isEmpty(boardModel[row - 2][col - 2])) {
+        if (avModel.team === TEAM_TYPES.BLACK
+          && (row - 2 >= 0 && col - 2 >= 0)
+          && isEmpty(boardModel[row - 2][col - 2])) {
           const trModel = boardModel[row - 2][col - 2];
           trModel.state = CELL_STATE.REQUIRED;
           trModel.target = avModel;
@@ -356,7 +369,9 @@ const enablePromptMode = (row, col) => {
       if (row - 1 >= 0 && col + 1 < BOARD_SIZE) {
         const avModel = boardModel[row - 1][col + 1];
 
-        if (isBlack(avModel) && (row - 2 >= 0 && col + 2 < BOARD_SIZE) && isEmpty(boardModel[row - 2][col + 2])) {
+        if (avModel.team === TEAM_TYPES.BLACK
+          && (row - 2 >= 0 && col + 2 < BOARD_SIZE)
+          && isEmpty(boardModel[row - 2][col + 2])) {
           const trModel = boardModel[row - 2][col + 2];
           trModel.state = CELL_STATE.REQUIRED;
           trModel.target = avModel;
@@ -370,7 +385,9 @@ const enablePromptMode = (row, col) => {
       if (row + 1 < BOARD_SIZE && col - 1 >= 0) {
         const avModel = boardModel[row + 1][col - 1];
 
-        if (isBlack(avModel) && (row + 2 < BOARD_SIZE && col - 2 >= 0) && isEmpty(boardModel[row + 2][col - 2])) {
+        if (avModel.team === TEAM_TYPES.BLACK
+          && (row + 2 < BOARD_SIZE && col - 2 >= 0)
+          && isEmpty(boardModel[row + 2][col - 2])) {
           const trModel = boardModel[row + 2][col - 2];
           trModel.state = CELL_STATE.REQUIRED;
           trModel.target = avModel;
@@ -381,7 +398,9 @@ const enablePromptMode = (row, col) => {
       if (row + 1 < BOARD_SIZE && col + 1 < BOARD_SIZE) {
         const avModel = boardModel[row + 1][col + 1];
 
-        if (isBlack(avModel) && (row + 2 < BOARD_SIZE && col + 2 < BOARD_SIZE) && isEmpty(boardModel[row + 2][col + 2])) {
+        if (avModel.team === TEAM_TYPES.BLACK
+          && (row + 2 < BOARD_SIZE && col + 2 < BOARD_SIZE)
+          && isEmpty(boardModel[row + 2][col + 2])) {
           const trModel = boardModel[row + 2][col + 2];
           trModel.state = CELL_STATE.REQUIRED;
           trModel.target = avModel;
@@ -389,14 +408,16 @@ const enablePromptMode = (row, col) => {
         }
       }
     }
-  } else if (isBlack(sourceModel)) {
+  } else if (sourceModel.team === TEAM_TYPES.BLACK) {
     if (sourceModel.type === CELL_TYPES.BLACK_KING) {
-      calculateTurnsForKing(row, col, isWhite, availableTurnModels);
+      calculateTurnsForKing(row, col, TEAM_TYPES.WHITE, availableTurnModels);
     } else {
       if (row + 1 < BOARD_SIZE && col - 1 >= 0) {
         const avModel = boardModel[row + 1][col - 1];
 
-        if (isWhite(avModel) && (row + 2 < BOARD_SIZE && col - 2 >= 0) && isEmpty(boardModel[row + 2][col - 2])) {
+        if (avModel.team === TEAM_TYPES.WHITE
+          && (row + 2 < BOARD_SIZE && col - 2 >= 0)
+          && isEmpty(boardModel[row + 2][col - 2])) {
           const trModel = boardModel[row + 2][col - 2];
 
           trModel.state = CELL_STATE.REQUIRED;
@@ -411,7 +432,9 @@ const enablePromptMode = (row, col) => {
       if (row + 1 < BOARD_SIZE && col + 1 < BOARD_SIZE) {
         const avModel = boardModel[row + 1][col + 1];
 
-        if (isWhite(avModel) && (row + 2 < BOARD_SIZE && col + 2 < BOARD_SIZE) && isEmpty(boardModel[row + 2][col + 2])) {
+        if (avModel.team === TEAM_TYPES.WHITE
+          && (row + 2 < BOARD_SIZE && col + 2 < BOARD_SIZE)
+          && isEmpty(boardModel[row + 2][col + 2])) {
           const trModel = boardModel[row + 2][col + 2];
 
           trModel.state = CELL_STATE.REQUIRED;
@@ -426,7 +449,9 @@ const enablePromptMode = (row, col) => {
       if (row - 1 >= 0 && col - 1 >= 0) {
         const avModel = boardModel[row - 1][col - 1];
 
-        if (isWhite(avModel) && (row - 2 >= 0 && col - 2 >= 0) && isEmpty(boardModel[row - 2][col - 2])) {
+        if (avModel.team === TEAM_TYPES.WHITE
+          && (row - 2 >= 0 && col - 2 >= 0)
+          && isEmpty(boardModel[row - 2][col - 2])) {
           const trModel = boardModel[row - 2][col - 2];
 
           trModel.state = CELL_STATE.REQUIRED;
@@ -438,7 +463,9 @@ const enablePromptMode = (row, col) => {
       if (row - 1 >= 0 && col + 1 < BOARD_SIZE) {
         const avModel = boardModel[row - 1][col + 1];
 
-        if (isWhite(avModel) && (row - 2 >= 0 && col + 2 < BOARD_SIZE) && isEmpty(boardModel[row - 2][col + 2])) {
+        if (avModel.team === TEAM_TYPES.WHITE
+          && (row - 2 >= 0 && col + 2 < BOARD_SIZE)
+          && isEmpty(boardModel[row - 2][col + 2])) {
           const trModel = boardModel[row - 2][col + 2];
 
           trModel.state = CELL_STATE.REQUIRED;
@@ -459,8 +486,6 @@ const enablePromptMode = (row, col) => {
       return acc;
     }, []);
   }
-
-  renderAllCheckers();
 };
 
 const disablePromptMode = () => {
@@ -470,8 +495,22 @@ const disablePromptMode = () => {
     }
   }
   isPromptModeEnabled = false;
+};
 
-  renderAllCheckers();
+const getTeamRequiredTurns = () => {
+  requiredTurnCheckers = boardModel
+    .reduce((acc, row) => {
+      row
+        .filter((cell) => cell.team === currentTeam)
+        .forEach((cell) => {
+          enablePromptMode(cell.row, cell.col);
+          if (isRequiredTurnExist()) {
+            acc.push(cell);
+          }
+          disablePromptMode();
+        });
+      return acc;
+    }, []);
 };
 
 const changeTurn = () => {
@@ -480,12 +519,14 @@ const changeTurn = () => {
     : TEAM_TYPES.WHITE;
 
   savedBoardModel = JSON.parse(JSON.stringify(boardModel));
+
+  getTeamRequiredTurns();
 };
 
 const checkForTheKing = (model) => {
-  if (isBlack(model) && model.row === BOARD_SIZE - 1) {
+  if (model.team === TEAM_TYPES.BLACK && model.row === BOARD_SIZE - 1) {
     model.type = CELL_TYPES.BLACK_KING;
-  } else if (isWhite(model) && model.row === 0) {
+  } else if (model.team === TEAM_TYPES.WHITE && model.row === 0) {
     model.type = CELL_TYPES.WHITE_KING;
   }
 };
@@ -533,6 +574,7 @@ const handleTurn = (targetModel) => {
   if (availableTurn.target) {
     availableTurn.target.type = CELL_TYPES.EMPTY;
     availableTurn.target.state = CELL_STATE.DEFAULT;
+    availableTurn.target.team = null;
 
     enablePromptMode(sourceModel.row, sourceModel.col);
     if (!isRequiredTurnExist()) {
@@ -548,6 +590,24 @@ const handleTurn = (targetModel) => {
   renderAllCheckers();
 };
 
+const countTeamMembers = (team) => boardModel.reduce((acc, row) => {
+  const teamMembers = row
+    .filter((cell) => cell.team === team);
+  return acc + (teamMembers || []).length;
+}, 0);
+
+
+const checkForWinner = () => {
+  const whiteMembersAmount = countTeamMembers(TEAM_TYPES.WHITE);
+  const blackMembersAmount = countTeamMembers(TEAM_TYPES.BLACK);
+
+  if (!whiteMembersAmount) {
+    winner = TEAM_TYPES.BLACK;
+  } else if (!blackMembersAmount) {
+    winner = TEAM_TYPES.WHITE;
+  }
+};
+
 
 // actions
 const onStartClick = () => {
@@ -559,14 +619,29 @@ const onExampleClick = () => {
   initBoard();
 
   boardModel[4][5].type = CELL_TYPES.WHITE_DEFAULT;
+  boardModel[4][5].team = TEAM_TYPES.WHITE;
+
   boardModel[4][7].type = CELL_TYPES.WHITE_DEFAULT;
+  boardModel[4][7].team = TEAM_TYPES.WHITE;
+
 
   boardModel[0][1].type = CELL_TYPES.BLACK_DEFAULT;
+  boardModel[0][1].team = TEAM_TYPES.BLACK;
+
   boardModel[7][2].type = CELL_TYPES.BLACK_KING;
+  boardModel[7][2].team = TEAM_TYPES.BLACK;
+
   boardModel[3][2].type = CELL_TYPES.BLACK_DEFAULT;
+  boardModel[3][2].team = TEAM_TYPES.BLACK;
+
   boardModel[1][2].type = CELL_TYPES.BLACK_DEFAULT;
+  boardModel[1][2].team = TEAM_TYPES.BLACK;
+
   boardModel[1][4].type = CELL_TYPES.BLACK_DEFAULT;
+  boardModel[1][4].team = TEAM_TYPES.BLACK;
+
   boardModel[2][7].type = CELL_TYPES.BLACK_DEFAULT;
+  boardModel[2][7].team = TEAM_TYPES.BLACK;
 
   changeTurn();
   renderAllCheckers();
@@ -588,6 +663,7 @@ const onEndTurnClick = () => {
   turnModel = null;
   isTurnOver = false;
 
+  checkForWinner();
   disablePromptMode();
   changeTurn();
   renderAllCheckers();
@@ -602,6 +678,8 @@ const onCancelTurnClick = () => {
   availableTurnModels = [];
   sourceModel = null;
   isTurnOver = false;
+
+  getTeamRequiredTurns();
 
   renderAllCheckers();
 };
